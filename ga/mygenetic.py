@@ -30,21 +30,21 @@ class MyGeneticAlgorithm(Algorithm):
         self.query_search = query_search
         
 
-    
+
     def evaluate(self, individual):
+        unique_individual = list(set(individual))
+        if len(unique_individual) != len(individual):
+            return (0.0, )
 
-        if len(individual) != len(set(individual)):
+        if any(movie_id not in self.all_ids for movie_id in unique_individual):
             return (0.0, )
         
-        if len(list(set(individual) - set(self.all_ids))) > 0:
+        ratings_movies = RatingsRepository.find_by_movieid_list(self.db, unique_individual)
+
+        if not ratings_movies:
             return (0.0, )
-        
-        ratings_movies = RatingsRepository.find_by_movieid_list(self.db, individual)
 
-        if len(ratings_movies) > 0:
-            mean_ = np.mean([obj_.rating for obj_ in ratings_movies])
-        else:
-            mean_ = 0.0
-
-        return (mean_, )
+        ratings = [obj.rating for obj in ratings_movies]
+        mean_rating = np.mean(ratings)
+        return (mean_rating, )
 
