@@ -34,59 +34,45 @@ class MyGeneticAlgorithm(Algorithm):
     def evaluate(self, individual):
         if len(individual) != len(set(individual)):
             return (0.0, )
-        
+
         if len(list(set(individual) - set(self.all_ids))) > 0:
             return (0.0, )
-        
-        total_weighted_rating = 0.0
-        total_weight = 0.0
 
-        movie_years = []
-        
-        user_liked_genres = set()  # Conjunto de gêneros que o usuário gosta
-        
-        # Recupere os gêneros que o usuário gosta a partir de suas avaliações
-        user_ratings = RatingsRepository.find_by_userid(self.db, self.query_search)
-        for rating in user_ratings:
-            if rating.rating >= 3.5:
-                movie = rating.movie
-                if movie.genres:
-                    if movie.genres not in user_liked_genres:
-                        user_liked_genres.update(movie.genres.split("|"))
-                
-                if movie.year:
-                    movie_years.append(movie.year)
-        
-        for movie_id in individual:
-            # Recupere as avaliações do filme
-            ratings_movies = RatingsRepository.find_by_movieid_list(self.db, [movie_id])
+        ratings_movies = RatingsRepository.find_by_movieid_list(self.db, individual)
 
-            if ratings_movies:
-                # Calcula a média ponderada das avaliações para o filme
-                weighted_rating = np.mean([obj_.rating for obj_ in ratings_movies])
-                
-                # Verifique se o filme pertence a um gênero que o usuário gosta
-                movie = MovieRepository.find_by_id(self.db, movie_id)
-                if movie.genres:
-                    movie_genres = set(movie.genres.split("|"))
-                    common_genres = user_liked_genres.intersection(movie_genres)
-                    if common_genres:
-                        # Atribua um peso maior ao filme se ele tiver gêneros em comum com o usuário
-                        weighted_rating *= len(common_genres)  # Pode ajustar o peso conforme necessário
-
-                if movie.year:
-                    #VERIFICA SE O ANO DO FILME ESTA DENTRO DE UM RANGE DE ANOS QUE O USUARIO GOSTA PEGANDO O MAXIMO E O MINIMO
-                    min_year = math.floor(min(movie_years))
-                    max_year = math.ceil(max(movie_years))
-                    if movie.year >= min_year and movie.year <= max_year:
-                        weighted_rating *= 1.5
-
-                total_weighted_rating += weighted_rating
-                total_weight += 1.0
-
-        if total_weight > 0:
-            mean_weighted_rating = total_weighted_rating / total_weight
+        if len(ratings_movies) > 0:
+            mean_rating = np.mean([obj.rating for obj in ratings_movies])
         else:
-            mean_weighted_rating = 0.0
+            mean_rating = 0.0
 
-        return (mean_weighted_rating, )
+        filtered_movies = [movie for movie in individual if mean_rating > 4.0]
+
+        genre_counts = {}
+        for movie_id in filtered_movies:
+            movie = MovieRepository.find_by_id(self.db, movie_id)
+            if movie:
+                genres = movie.genres.split("|")
+                for genre in genres:
+                    if genre in genre_counts:
+                        genre_counts[genre] += 1
+                    else:
+                        genre_counts[genre] = 1
+
+        most_common_genre = max(genre_counts, key=genre_counts.get, default=None)
+
+        genre_filtered_movies = [movie_id for movie_id in filtered_movies if MovieRepository.find_by_id(self.db, movie_id).genres.startswith(most_common_genre)]
+
+        release_year_filter = {}
+        for movie_id in genre_filtered_movies:
+            movie = MovieRepository.find_by_id(self.db, movie_id)
+            if movie:
+                release_year = movie.year
+                if release_year not in release_year_filter:
+                    release_year_filter[release_year] = 0
+                release_year_filter[release_year] += 1
+
+        most_common_release_year = max(release_year_filter, key=release_year_filter.get, default=None)
+        
+        final_score = mean_rating + 0.5 * release_year_filter.get(most_common_release_year, 0)
+
+        return (final_score, )
